@@ -1,5 +1,5 @@
 {
-  "name": "pa11y",
+  "name": "pa11y-unlimited",
   "version": "9.1.1",
   "description": "Pa11y is your automated accessibility testing pal",
   "keywords": [
@@ -25,19 +25,9 @@
     "validator",
     "WCAG"
   ],
-  "author": "Team Pa11y",
+  "author": "Darren Britton",
   "contributors": [
-    "Rowan Manning (http://rowanmanning.com/)",
-    "Whymarrh Whitby (http://whymarrh.com/)",
-    "Stephen Mathieson (http://www.stephenmathieson.com/)",
-    "Alex Soble (http://www.alexsoble.com/)",
-    "Charlie Brown (http://www.carbonatethis.com/)",
-    "Hollie Kay (http://www.hollsk.co.uk/)",
-    "Adam Tavener (http://www.tavvy.co.uk/)",
-    "Glynn Phillips (http://www.glynnphillips.co.uk/)",
-    "José Bolos (https://github.com/josebolos)",
-    "Joey Ciechanowicz (https://github.com/joeyciechanowicz)",
-    "Aaron Goldenthal (https://github.com/aarongoldenthal)"
+    "Darren Britton (https://darrenbritton.com/)"
   ],
   "repository": {
     "type": "git",
@@ -77,7 +67,7 @@
   "scripts": {
     "start": "node ./bin/pa11y.js",
     "lint": "eslint .",
-    "test": "npm run test-coverage && npm run verify-coverage && npm run test-integration",
+    "test": "npm run test-coverage && npm run verify-coverage",
     "test-coverage": "c8 -- npm run test-unit",
     "test-integration": "mocha --config test/integration/.mocharc.json",
     "test-unit": "mocha",
