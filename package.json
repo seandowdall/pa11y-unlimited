@@ -31,10 +31,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/pa11y/pa11y.git"
+    "url": "https://github.com/darrenbritton/pa11y-unlimited.git"
   },
-  "homepage": "https://github.com/pa11y/pa11y",
-  "bugs": "https://github.com/pa11y/pa11y/issues",
+  "homepage": "https://github.com/darrenbritton/pa11y-unlimited",
+  "bugs": "https://github.com/darrenbritton/pa11y-unlimited/issues",
   "license": "LGPL-3.0-only",
   "engines": {
     "node": ">=20"
