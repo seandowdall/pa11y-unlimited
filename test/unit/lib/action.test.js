@@ -1923,6 +1923,21 @@ describe('lib/action', function() {
 		it('returns null when there is no delimiter at all', function() {
 			assert.isNull(splitSelectorAndValue('#email alice@example.com'));
 		});
+
+		it('accepts a mixed-case delimiter (TO, To, tO)', function() {
+			assert.deepEqual(splitSelectorAndValue('#email TO alice@example.com'), {
+				selector: '#email',
+				value: 'alice@example.com'
+			});
+			assert.deepEqual(splitSelectorAndValue('#email To bar'), {
+				selector: '#email',
+				value: 'bar'
+			});
+			assert.deepEqual(splitSelectorAndValue('#email tO bar'), {
+				selector: '#email',
+				value: 'bar'
+			});
+		});
 	});
 
 });
