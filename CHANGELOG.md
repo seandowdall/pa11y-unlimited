@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.2.0 (2026-05-25)
+
+First release of the `pa11y-unlimited` fork.
+
+* Remove the limit on HTML context in error reports so the full surrounding markup is preserved.
+* Handle native `<select>` elements in `set-field-value` by matching value, text, or label. (#3)
+* Bump `ip-address` in the `npm_and_yarn` group. (#2)
+
+### Full diff for `pa11y-unlimited@9.2.0`
+
+* [v9.1.1...v9.2.0](https://github.com/darrenbritton/pa11y-unlimited/compare/v9.1.1...v9.2.0)
+
 ## 9.1.1 (2026-02-26)
 
 * Fix several issues with loading custom runners, including errors when loading any custom runner on Windows. (#798)
