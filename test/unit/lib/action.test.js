@@ -310,29 +310,27 @@ describe('lib/action', function() {
 		describe('.match', function() {
 
 			it('matches all of the expected action strings', function() {
+				// Group 2 holds the whole payload; splitSelectorAndValue
+				// performs the selector/value split inside `run`.
 				assert.deepEqual('set .foo to bar'.match(action.match), [
 					'set .foo to bar',
 					undefined,
-					'.foo',
-					'bar'
+					'.foo to bar'
 				]);
 				assert.deepEqual('set field .foo to bar'.match(action.match), [
 					'set field .foo to bar',
 					' field',
-					'.foo',
-					'bar'
+					'.foo to bar'
 				]);
 				assert.deepEqual('set field .foo .bar .baz to hello world'.match(action.match), [
 					'set field .foo .bar .baz to hello world',
 					' field',
-					'.foo .bar .baz',
-					'hello world'
+					'.foo .bar .baz to hello world'
 				]);
 				assert.deepEqual('set field .foo to hello to the world'.match(action.match), [
 					'set field .foo to hello to the world',
 					' field',
-					'.foo',
-					'hello to the world'
+					'.foo to hello to the world'
 				]);
 			});
 
@@ -354,8 +352,8 @@ describe('lib/action', function() {
 			it('evaluates some JavaScript in the context of the page', function() {
 				assert.calledOnce(puppeteer.mockPage.evaluate);
 				assert.isFunction(puppeteer.mockPage.evaluate.firstCall.args[0]);
-				assert.strictEqual(puppeteer.mockPage.evaluate.firstCall.args[1], matches[2]);
-				assert.strictEqual(puppeteer.mockPage.evaluate.firstCall.args[2], matches[3]);
+				assert.strictEqual(puppeteer.mockPage.evaluate.firstCall.args[1], 'foo');
+				assert.strictEqual(puppeteer.mockPage.evaluate.firstCall.args[2], 'bar');
 			});
 
 			describe('evaluated JavaScript', function() {
@@ -475,6 +473,156 @@ describe('lib/action', function() {
 					assert.strictEqual(rejectedError.message, 'Failed action: no element matching selector "foo"');
 				});
 
+			});
+
+			describe('when the selector contains " to "', function() {
+				let nestedMatches;
+
+				beforeEach(async function() {
+					puppeteer.mockPage.evaluate.resetHistory();
+					puppeteer.mockPage.evaluate.resolves();
+					nestedMatches = 'set field select[aria-label="select option to download"] to Custom: Compress'.match(action.match);
+					await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, nestedMatches);
+				});
+
+				it('passes the full selector to page.evaluate', function() {
+					assert.strictEqual(
+						puppeteer.mockPage.evaluate.firstCall.args[1],
+						'select[aria-label="select option to download"]'
+					);
+				});
+
+				it('passes only the post-delimiter value to page.evaluate', function() {
+					assert.strictEqual(
+						puppeteer.mockPage.evaluate.firstCall.args[2],
+						'Custom: Compress'
+					);
+				});
+			});
+
+			describe('when the value contains " to "', function() {
+				let valueMatches;
+
+				beforeEach(async function() {
+					puppeteer.mockPage.evaluate.resetHistory();
+					puppeteer.mockPage.evaluate.resolves();
+					valueMatches = 'set field #note to back to the future'.match(action.match);
+					await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, valueMatches);
+				});
+
+				it('splits on the first ` to ` outside selector structure', function() {
+					assert.strictEqual(puppeteer.mockPage.evaluate.firstCall.args[1], '#note');
+					assert.strictEqual(puppeteer.mockPage.evaluate.firstCall.args[2], 'back to the future');
+				});
+			});
+
+			describe('evaluated JavaScript against a <select> target', function() {
+				let originalDocument;
+				let mockSelect;
+
+				function createMockOption(props) {
+					return Object.assign({
+						value: '',
+						textContent: '',
+						getAttribute: sinon.stub().returns(null),
+						index: 0
+					}, props);
+				}
+
+				function buildMockSelect(specs) {
+					const opts = specs.map((spec, index) => createMockOption({
+						value: spec.value || '',
+						textContent: spec.text || '',
+						getAttribute: sinon.stub().callsFake(name => (name === 'label' ? (spec.label || null) : null)),
+						index
+					}));
+					return {
+						tagName: 'SELECT',
+						options: opts,
+						selectedIndex: 0,
+						dispatchEvent: sinon.stub()
+					};
+				}
+
+				beforeEach(function() {
+					originalDocument = global.document;
+					global.Event = sinon.stub().callsFake((type, init) => ({type,
+						init}));
+				});
+
+				afterEach(function() {
+					global.document = originalDocument;
+				});
+
+				it('matches by option.value when it equals the recorded value', async function() {
+					mockSelect = buildMockSelect([
+						{value: 'us',
+							text: 'United States'},
+						{value: 'ca',
+							text: 'Canada'}
+					]);
+					global.document = {querySelector: sinon.stub().returns(mockSelect)};
+					await puppeteer.mockPage.evaluate.firstCall.args[0]('select#x', 'ca');
+					assert.strictEqual(mockSelect.selectedIndex, 1);
+				});
+
+				it('falls back to textContent when no option matches by value', async function() {
+					mockSelect = buildMockSelect([
+						{value: 'object:1',
+							text: 'Original'},
+						{value: 'object:2',
+							text: 'Custom: Crop'},
+						{value: 'object:3',
+							text: 'Custom: Compress'}
+					]);
+					global.document = {querySelector: sinon.stub().returns(mockSelect)};
+					await puppeteer.mockPage.evaluate.firstCall.args[0]('select#x', 'Custom: Compress');
+					assert.strictEqual(mockSelect.selectedIndex, 2);
+				});
+
+				it('falls back to the label attribute when textContent is empty', async function() {
+					mockSelect = buildMockSelect([
+						{value: 'object:1',
+							text: '',
+							label: 'Alpha'},
+						{value: 'object:2',
+							text: '',
+							label: 'Beta'}
+					]);
+					global.document = {querySelector: sinon.stub().returns(mockSelect)};
+					await puppeteer.mockPage.evaluate.firstCall.args[0]('select#x', 'Beta');
+					assert.strictEqual(mockSelect.selectedIndex, 1);
+				});
+
+				it('dispatches input and change events on the select', async function() {
+					mockSelect = buildMockSelect([
+						{value: 'object:1',
+							text: 'A'},
+						{value: 'object:2',
+							text: 'B'}
+					]);
+					global.document = {querySelector: sinon.stub().returns(mockSelect)};
+					await puppeteer.mockPage.evaluate.firstCall.args[0]('select#x', 'B');
+					const dispatchedTypes = mockSelect.dispatchEvent.getCalls().map(call => call.args[0].type);
+					assert.deepEqual(dispatchedTypes, ['input', 'change']);
+				});
+
+				it('rejects when no option matches by value, text, or label', async function() {
+					mockSelect = buildMockSelect([
+						{value: 'object:1',
+							text: 'A'},
+						{value: 'object:2',
+							text: 'B'}
+					]);
+					global.document = {querySelector: sinon.stub().returns(mockSelect)};
+					let rejected;
+					try {
+						await puppeteer.mockPage.evaluate.firstCall.args[0]('select#x', 'Nonexistent');
+					} catch (error) {
+						rejected = error;
+					}
+					assert.instanceOf(rejected, Error);
+				});
 			});
 
 		});
@@ -1715,6 +1863,66 @@ describe('lib/action', function() {
 
 		});
 
+	});
+
+	describe('splitSelectorAndValue', function() {
+		let splitSelectorAndValue;
+
+		beforeEach(function() {
+			splitSelectorAndValue = runAction.splitSelectorAndValue;
+		});
+
+		it('splits a plain selector and value', function() {
+			assert.deepEqual(splitSelectorAndValue('#email to alice@example.com'), {
+				selector: '#email',
+				value: 'alice@example.com'
+			});
+		});
+
+		it('does not split at a " to " inside a quoted attribute value', function() {
+			assert.deepEqual(
+				splitSelectorAndValue('select[aria-label="select option to download"] to Custom: Compress'),
+				{
+					selector: 'select[aria-label="select option to download"]',
+					value: 'Custom: Compress'
+				}
+			);
+		});
+
+		it('does not split at a " to " inside square brackets without quotes', function() {
+			assert.deepEqual(splitSelectorAndValue('[data-x=foo to bar] to value'), {
+				selector: '[data-x=foo to bar]',
+				value: 'value'
+			});
+		});
+
+		it('handles values that themselves contain " to "', function() {
+			assert.deepEqual(splitSelectorAndValue('#note to back to the future'), {
+				selector: '#note',
+				value: 'back to the future'
+			});
+		});
+
+		it('handles selectors with " to " inside brackets and values with " to "', function() {
+			assert.deepEqual(
+				splitSelectorAndValue('select[aria-label="select option to download"] to ship date 1 to 5'),
+				{
+					selector: 'select[aria-label="select option to download"]',
+					value: 'ship date 1 to 5'
+				}
+			);
+		});
+
+		it('handles pseudo-class parens containing " to "', function() {
+			assert.deepEqual(splitSelectorAndValue('input:not([placeholder*="to me"]) to hi'), {
+				selector: 'input:not([placeholder*="to me"])',
+				value: 'hi'
+			});
+		});
+
+		it('returns null when there is no delimiter at all', function() {
+			assert.isNull(splitSelectorAndValue('#email alice@example.com'));
+		});
 	});
 
 });
