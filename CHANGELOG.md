@@ -1,5 +1,13 @@
 # Changelog
 
+## 9.3.0 (2026-06-09)
+
+* Resolve native Puppeteer selectors (`::-p-aria(...)`, `aria/`, `text/`, `xpath/`, `pierce/`) in actions, so workflows can target elements by ARIA role and accessible name. Plain CSS selectors keep the original in-page behaviour unchanged. (#1, #5)
+
+### Full diff for `pa11y-unlimited@9.3.0`
+
+* [v9.2.0...v9.3.0](https://github.com/darrenbritton/pa11y-unlimited/compare/v9.2.0...v9.3.0)
+
 ## 9.2.0 (2026-05-25)
 
 First release of the `pa11y-unlimited` fork.
