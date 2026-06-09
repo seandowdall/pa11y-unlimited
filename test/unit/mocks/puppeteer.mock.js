@@ -13,6 +13,13 @@ const mockBrowser = {
 };
 puppeteer.mockBrowser = mockBrowser;
 
+// ElementHandle returned by `page.$` for native (non-CSS) selector resolution.
+const mockElementHandle = {
+	evaluate: sinon.stub().resolves(),
+	dispose: sinon.stub().resolves()
+};
+puppeteer.mockElementHandle = mockElementHandle;
+
 const mockPage = {
 	addScriptTag: sinon.stub().resolves(),
 	close: sinon.stub().resolves(),
@@ -28,7 +35,10 @@ const mockPage = {
 	setUserAgent: sinon.stub().resolves(),
 	setViewport: sinon.stub().resolves(),
 	type: sinon.stub().resolves(),
-	waitForFunction: sinon.stub().resolves()
+	waitForFunction: sinon.stub().resolves(),
+	$: sinon.stub().resolves(mockElementHandle),
+	waitForSelector: sinon.stub().resolves(mockElementHandle),
+	getDefaultTimeout: sinon.stub().returns(30000)
 };
 puppeteer.mockPage = mockPage;
 

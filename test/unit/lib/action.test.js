@@ -1865,6 +1865,331 @@ describe('lib/action', function() {
 
 	});
 
+	describe('native (non-CSS) selector support', function() {
+
+		describe('.usesNativeSelectorEngine(selector)', function() {
+
+			it('returns true for Puppeteer-native selector syntaxes', function() {
+				assert.isTrue(runAction.usesNativeSelectorEngine('aria/Allow all cookies[role="button"]'));
+				assert.isTrue(runAction.usesNativeSelectorEngine('::-p-aria(Allow all cookies[role="button"])'));
+				assert.isTrue(runAction.usesNativeSelectorEngine('text/Submit'));
+				assert.isTrue(runAction.usesNativeSelectorEngine('xpath///button'));
+				assert.isTrue(runAction.usesNativeSelectorEngine('pierce/.foo'));
+			});
+
+			it('returns false for plain CSS selectors', function() {
+				assert.isFalse(runAction.usesNativeSelectorEngine('.foo'));
+				assert.isFalse(runAction.usesNativeSelectorEngine('#bar'));
+				assert.isFalse(runAction.usesNativeSelectorEngine('button[aria-label="x"]'));
+			});
+
+		});
+
+		describe('set-field-value with a native selector', function() {
+			let action;
+			let matches;
+			const selector = '::-p-aria(Email[role="textbox"])';
+
+			beforeEach(async function() {
+				action = runAction.actions.find(foundAction => foundAction.name === 'set-field-value');
+				matches = `set field ${selector} to bar`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+			});
+
+			it('resolves the element via Puppeteer instead of document.querySelector', function() {
+				assert.calledOnce(puppeteer.mockPage.$);
+				assert.calledWithExactly(puppeteer.mockPage.$, selector);
+				assert.notCalled(puppeteer.mockPage.evaluate);
+			});
+
+			it('evaluates the value-setting function against the resolved handle and disposes it', function() {
+				assert.calledOnce(puppeteer.mockElementHandle.evaluate);
+				assert.isFunction(puppeteer.mockElementHandle.evaluate.firstCall.args[0]);
+				assert.strictEqual(puppeteer.mockElementHandle.evaluate.firstCall.args[1], 'bar');
+				assert.calledOnce(puppeteer.mockElementHandle.dispose);
+			});
+
+			describe('evaluated function (input element)', function() {
+				let mockElement;
+
+				beforeEach(async function() {
+					mockElement = createMockElement();
+					await puppeteer.mockElementHandle.evaluate.firstCall.args[0](mockElement, 'mock-value');
+				});
+
+				it('sets the element value and dispatches an input event', function() {
+					assert.strictEqual(mockElement.value, 'mock-value');
+					assert.calledWithExactly(mockElement.dispatchEvent, mockEvent);
+				});
+			});
+
+			describe('evaluated function (<select> element)', function() {
+				function createMockOption(props) {
+					return Object.assign({
+						value: '',
+						textContent: '',
+						getAttribute: sinon.stub().returns(null),
+						index: 0
+					}, props);
+				}
+
+				it('selects the option matching the value and dispatches input + change', async function() {
+					const mockSelect = {
+						tagName: 'SELECT',
+						options: [
+							createMockOption({value: 'us',
+								textContent: 'United States',
+								index: 0}),
+							createMockOption({value: 'ca',
+								textContent: 'Canada',
+								index: 1})
+						],
+						selectedIndex: 0,
+						dispatchEvent: sinon.stub()
+					};
+					global.Event = sinon.stub().callsFake(type => ({type}));
+					await puppeteer.mockElementHandle.evaluate.firstCall.args[0](mockSelect, 'ca');
+					assert.strictEqual(mockSelect.selectedIndex, 1);
+					const types = mockSelect.dispatchEvent.getCalls().map(call => call.args[0].type);
+					assert.deepEqual(types, ['input', 'change']);
+				});
+
+				it('rejects when no option matches', async function() {
+					const mockSelect = {
+						tagName: 'SELECT',
+						options: [createMockOption({value: 'us',
+							textContent: 'United States',
+							index: 0})],
+						selectedIndex: 0,
+						dispatchEvent: sinon.stub()
+					};
+					let rejected;
+					try {
+						await puppeteer.mockElementHandle.evaluate.firstCall.args[0](mockSelect, 'nope');
+					} catch (error) {
+						rejected = error;
+					}
+					assert.instanceOf(rejected, Error);
+				});
+			});
+
+			describe('when no element matches the native selector', function() {
+				let rejectedError;
+
+				beforeEach(async function() {
+					puppeteer.mockPage.$.resolves(null);
+					try {
+						await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+					} catch (error) {
+						rejectedError = error;
+					}
+				});
+
+				it('rejects with the standard no-element error', function() {
+					assert.instanceOf(rejectedError, Error);
+					assert.strictEqual(rejectedError.message, `Failed action: no element matching selector "${selector}"`);
+				});
+			});
+
+			describe('when the handle evaluation fails', function() {
+				let rejectedError;
+
+				beforeEach(async function() {
+					puppeteer.mockElementHandle.evaluate.rejects(new Error('evaluate error'));
+					try {
+						await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+					} catch (error) {
+						rejectedError = error;
+					}
+				});
+
+				it('rejects with the standard no-element error and still disposes the handle', function() {
+					assert.instanceOf(rejectedError, Error);
+					assert.strictEqual(rejectedError.message, `Failed action: no element matching selector "${selector}"`);
+					assert.called(puppeteer.mockElementHandle.dispose);
+				});
+			});
+		});
+
+		describe('clear-field-value with a native selector', function() {
+			let action;
+			const selector = '::-p-aria(Email[role="textbox"])';
+
+			beforeEach(async function() {
+				action = runAction.actions.find(foundAction => foundAction.name === 'clear-field-value');
+				const matches = `clear field ${selector}`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+			});
+
+			it('resolves and clears via the handle, not document.querySelector', function() {
+				assert.calledWithExactly(puppeteer.mockPage.$, selector);
+				assert.notCalled(puppeteer.mockPage.evaluate);
+				assert.calledOnce(puppeteer.mockElementHandle.evaluate);
+				assert.calledOnce(puppeteer.mockElementHandle.dispose);
+			});
+
+			it('clears the element value when the function runs', async function() {
+				const mockElement = createMockElement();
+				mockElement.value = 'preset';
+				await puppeteer.mockElementHandle.evaluate.firstCall.args[0](mockElement);
+				assert.strictEqual(mockElement.value, '');
+				assert.calledWithExactly(mockElement.dispatchEvent, mockEvent);
+			});
+		});
+
+		describe('check-field with a native selector', function() {
+			let action;
+			const selector = '::-p-aria(I agree[role="checkbox"])';
+
+			beforeEach(async function() {
+				action = runAction.actions.find(foundAction => foundAction.name === 'check-field');
+				const matches = `check field ${selector}`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+			});
+
+			it('resolves and toggles via the handle, not document.querySelector', function() {
+				assert.calledWithExactly(puppeteer.mockPage.$, selector);
+				assert.notCalled(puppeteer.mockPage.evaluate);
+				assert.strictEqual(puppeteer.mockElementHandle.evaluate.firstCall.args[1], true);
+				assert.calledOnce(puppeteer.mockElementHandle.dispose);
+			});
+
+			it('sets checked and dispatches a change event when the function runs', async function() {
+				const mockElement = createMockElement();
+				await puppeteer.mockElementHandle.evaluate.firstCall.args[0](mockElement, true);
+				assert.strictEqual(mockElement.checked, true);
+				assert.calledWithExactly(mockElement.dispatchEvent, mockEvent);
+			});
+		});
+
+		describe('wait-for-element-state with a native selector', function() {
+			let action;
+			const selector = '::-p-aria(Cookie banner[role="dialog"])';
+
+			beforeEach(function() {
+				action = runAction.actions.find(foundAction => foundAction.name === 'wait-for-element-state');
+			});
+
+			it('waits via Puppeteer waitForSelector with {visible:true} for "visible"', async function() {
+				const matches = `wait for element ${selector} to be visible`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+				assert.notCalled(puppeteer.mockPage.waitForFunction);
+				assert.calledWithExactly(puppeteer.mockPage.waitForSelector, selector, {visible: true});
+			});
+
+			it('waits with {hidden:true} for "hidden"', async function() {
+				const matches = `wait for element ${selector} to be hidden`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+				assert.calledWithExactly(puppeteer.mockPage.waitForSelector, selector, {hidden: true});
+			});
+
+			it('waits with no options for "added"', async function() {
+				const matches = `wait for element ${selector} to be added`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+				assert.calledWithExactly(puppeteer.mockPage.waitForSelector, selector);
+			});
+
+			it('polls page.$ until absent for "removed"', async function() {
+				puppeteer.mockPage.$.resolves(null);
+				const matches = `wait for element ${selector} to be removed`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+				assert.calledWith(puppeteer.mockPage.$, selector);
+				assert.notCalled(puppeteer.mockPage.waitForSelector);
+			});
+
+			it('rejects when a "removed" element never disappears within the timeout', async function() {
+				puppeteer.mockPage.getDefaultTimeout.returns(1);
+				puppeteer.mockPage.$.resolves(puppeteer.mockElementHandle);
+				const matches = `wait for element ${selector} to be removed`.match(action.match);
+				let rejectedError;
+				try {
+					await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+				} catch (error) {
+					rejectedError = error;
+				}
+				assert.instanceOf(rejectedError, Error);
+				assert.include(rejectedError.message, 'to be removed');
+				assert.called(puppeteer.mockElementHandle.dispose);
+			});
+		});
+
+		describe('wait-for-element-event with a native selector', function() {
+			let action;
+			const selector = '::-p-aria(Tab panel[role="tabpanel"])';
+
+			beforeEach(async function() {
+				action = runAction.actions.find(foundAction => foundAction.name === 'wait-for-element-event');
+				const matches = `wait for element ${selector} to emit load`.match(action.match);
+				await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+			});
+
+			it('resolves the element via Puppeteer and waits on the fired flag', function() {
+				assert.calledWithExactly(puppeteer.mockPage.$, selector);
+				assert.notCalled(puppeteer.mockPage.evaluate);
+				assert.calledOnce(puppeteer.mockElementHandle.evaluate);
+				assert.calledOnce(puppeteer.mockElementHandle.dispose);
+				assert.calledOnce(puppeteer.mockPage.waitForFunction);
+			});
+
+			it('registers a one-time listener that sets the fired flag', function() {
+				const mockElement = createMockElement();
+				const originalWindow = global.window;
+				global.window = {};
+				try {
+					puppeteer.mockElementHandle.evaluate.firstCall.args[0](mockElement, 'load');
+					assert.calledOnce(mockElement.addEventListener);
+					assert.strictEqual(mockElement.addEventListener.firstCall.args[0], 'load');
+					mockElement.addEventListener.firstCall.args[1]();
+					/* eslint-disable no-underscore-dangle */
+					assert.isTrue(global.window._pa11yWaitForElementEventFired);
+					/* eslint-enable no-underscore-dangle */
+				} finally {
+					global.window = originalWindow;
+				}
+			});
+
+			describe('when no element matches the native selector', function() {
+				let rejectedError;
+
+				beforeEach(async function() {
+					puppeteer.mockPage.$.resolves(null);
+					const matches = `wait for element ${selector} to emit load`.match(action.match);
+					try {
+						await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+					} catch (error) {
+						rejectedError = error;
+					}
+				});
+
+				it('rejects with the standard no-element error', function() {
+					assert.instanceOf(rejectedError, Error);
+					assert.strictEqual(rejectedError.message, `Failed action: no element matching selector "${selector}"`);
+				});
+			});
+
+			describe('when the handle evaluation fails', function() {
+				let rejectedError;
+
+				beforeEach(async function() {
+					puppeteer.mockElementHandle.evaluate.rejects(new Error('evaluate error'));
+					const matches = `wait for element ${selector} to emit load`.match(action.match);
+					try {
+						await action.run(puppeteer.mockBrowser, puppeteer.mockPage, {}, matches);
+					} catch (error) {
+						rejectedError = error;
+					}
+				});
+
+				it('rejects with the standard no-element error and disposes the handle', function() {
+					assert.instanceOf(rejectedError, Error);
+					assert.strictEqual(rejectedError.message, `Failed action: no element matching selector "${selector}"`);
+					assert.called(puppeteer.mockElementHandle.dispose);
+				});
+			});
+		});
+
+	});
+
 	describe('splitSelectorAndValue', function() {
 		let splitSelectorAndValue;
 
